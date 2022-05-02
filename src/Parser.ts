@@ -1,6 +1,10 @@
 export class ParserError {
   description = "parser error"
 }
+
+export class OughtNotBeInstanceError {
+  description = "output ought not to be an instance of this class"
+}
 export class ParserResult<Input, Output> {
   constructor(public input: Input, public output: Output | ParserError) {}
 
@@ -20,6 +24,20 @@ export class ParserResult<Input, Output> {
 export abstract class Parser<Input, Output> {
   abstract parse(input: Input): ParserResult<Input, Output>
 
+  inspect(tag: string) {
+    const self = this
+
+    return new (class extends Parser<Input, Output> {
+      parse(input: Input) {
+        const output = self.parse(input)
+
+        console.log(`${tag}: `, input, output.output)
+
+        return output
+      }
+    })()
+  }
+
   map<U>(fn: (a: Output) => U) {
     const self = this
 
@@ -30,7 +48,7 @@ export abstract class Parser<Input, Output> {
     })()
   }
 
-  mapError(errorType: new () => ParserError, newError: ParserError) {
+  mapError(errorType: new (...args: any[]) => ParserError, newError: ParserError) {
     const self = this
 
     return new (class extends Parser<Input, Output> {
@@ -42,6 +60,22 @@ export abstract class Parser<Input, Output> {
         }
 
         return parsedValue
+      }
+    })()
+  }
+
+  outputNotInstance<Class>(instance: new (...args: any[]) => Class) {
+    const self = this
+
+    return new (class extends Parser<Input, Output> {
+      parse(input: Input) {
+        const parsedValue = self.parse(input)
+
+        if (parsedValue.output instanceof instance) {
+          return new ParserResult<Input, Output>(input, new OughtNotBeInstanceError())
+        } else {
+          return parsedValue
+        }
       }
     })()
   }
@@ -62,6 +96,53 @@ export abstract class Parser<Input, Output> {
     })()
   }
 
+  implies(parser: Parser<Input, Output>) {
+    const self = this
+
+    return new (class extends Parser<Input, Output[]> {
+      parse(input: Input) {
+        const parserResult = self.parse(input)
+
+        const otherResult = parser.parse(parserResult.input)
+
+        if (otherResult.output instanceof ParserError) {
+          if (parserResult.output instanceof ParserError) {
+            return new ParserResult<Input, Output[]>(input, parserResult.output)
+          }
+
+          return new ParserResult<Input, Output[]>(input, [parserResult.output])
+        }
+
+        if (parserResult.output instanceof ParserError) {
+          return new ParserResult<Input, Output[]>(input, [otherResult.output])
+        }
+
+        return new ParserResult<Input, Output[]>(otherResult.input, [
+          parserResult.output,
+          otherResult.output,
+        ])
+      }
+    })()
+  }
+
+  impliesILeft(parser: Parser<Input, Output>) {
+    const self = this
+
+    return new (class extends Parser<Input, Output> {
+      parse(input: Input) {
+        const parserResult = self.parse(input)
+
+        const otherResult = parser.parse(parserResult.input)
+
+        if (otherResult.output instanceof ParserError) {
+          return new ParserResult<Input, Output>(parserResult.input, parserResult.output)
+        }
+
+        return new ParserResult<Input, Output>(otherResult.input, otherResult.output)
+      }
+    })()
+  }
+
   and<AlternateOutput>(parser: Parser<Input, AlternateOutput>) {
     const self = this
 
@@ -71,7 +152,7 @@ export abstract class Parser<Input, Output> {
 
         if (parserResult.output instanceof ParserError) {
           return new ParserResult<Input, [Output, AlternateOutput]>(
-            parserResult.input,
+            input,
             parserResult.output
           )
         }
@@ -79,15 +160,15 @@ export abstract class Parser<Input, Output> {
 
         if (otherResult.output instanceof ParserError) {
           return new ParserResult<Input, [Output, AlternateOutput]>(
-            otherResult.input,
+            input,
             otherResult.output
           )
         }
 
-        return new ParserResult<Input, [Output, AlternateOutput]>(
-          otherResult.input,
-          [parserResult.output, otherResult.output]
-        )
+        return new ParserResult<Input, [Output, AlternateOutput]>(otherResult.input, [
+          parserResult.output,
+          otherResult.output,
+        ])
       }
     })()
   }
@@ -100,18 +181,12 @@ export abstract class Parser<Input, Output> {
         const parserResult = self.parse(input)
 
         if (parserResult.output instanceof ParserError) {
-          return new ParserResult<Input, AlternateOutput>(
-            parserResult.input,
-            parserResult.output
-          )
+          return new ParserResult<Input, AlternateOutput>(input, parserResult.output)
         }
         const otherResult = parser.parse(parserResult.input)
 
         if (otherResult.output instanceof ParserError) {
-          return new ParserResult<Input, AlternateOutput>(
-            otherResult.input,
-            otherResult.output
-          )
+          return new ParserResult<Input, AlternateOutput>(input, otherResult.output)
         }
 
         return new ParserResult<Input, AlternateOutput>(
@@ -130,24 +205,15 @@ export abstract class Parser<Input, Output> {
         const parserResult = self.parse(input)
 
         if (parserResult.output instanceof ParserError) {
-          return new ParserResult<Input, Output>(
-            parserResult.input,
-            parserResult.output
-          )
+          return new ParserResult<Input, Output>(input, parserResult.output)
         }
         const otherResult = parser.parse(parserResult.input)
 
         if (otherResult.output instanceof ParserError) {
-          return new ParserResult<Input, Output>(
-            otherResult.input,
-            otherResult.output
-          )
+          return new ParserResult<Input, Output>(input, otherResult.output)
         }
 
-        return new ParserResult<Input, Output>(
-          otherResult.input,
-          parserResult.output
-        )
+        return new ParserResult<Input, Output>(otherResult.input, parserResult.output)
       }
     })()
   }
